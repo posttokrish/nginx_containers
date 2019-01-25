@@ -57,5 +57,9 @@
      hosts: master
      remote_user: root
      tasks:	 
+       - name: Create custome nginx image
+         docker_image:
+           path: ./
+           name: nginx
        - name: Run a docker container on swarms
          script: docker service create --replicas 3 -p 80:80 --name serviceName nginx
