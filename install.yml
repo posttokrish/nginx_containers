@@ -1,31 +1,61 @@
 ---
-- hosts: localhost
-  remote_user: root
-  tasks:
-   - name: "Installing Docker Prerequisites "
-     yum: name={{ item }} state=latest
-     with_items:
-        - yum-utils
-        - device-mapper-persistent-data
-        - lvm2
+   - name: Install Docker
+     hosts: all
+     remote_user: root
+     tasks:
+      - name: "Installing Docker Prerequisites "
+        yum: name={{ item }} state=latest
+        with_items:
+         - yum-utils
+         - device-mapper-persistent-data
+         - lvm2
 
-   - name: "Configuring docker repo"
-     get_url:
-       url: https://download.docker.com/linux/centos/docker-ce.repo
-       dest: /etc/yum.repos.d/docker-ce.repo
-       mode: 0644
-
-   - name: " Installing Docker "
-     yum:
-       name: docker-ce
-       state: present
-
-   - name: " Starting Docker service"
-     service:
-       name: docker
-       state: started
-       enabled: yes
-   
-   - name: Run a docker container on swarms
-     script: docker service create --replicas 3 -p 80:80 --name serviceName nginx
+      - name: "Configuring docker repo"
+          get_url:
+            url: https://download.docker.com/linux/centos/docker-ce.repo
+            dest: /etc/yum.repos.d/docker-ce.repo
+            mode: 0644
+       
+        - name: " Installing Docker "
+          yum:
+            name: docker-ce
+            state: present
+       
+        - name: " Starting Docker service"
+          service:
+            name: docker
+            state: started
+            enabled: yes
  
+   - name: Install and configure Swarm
+     hosts: master
+     remote_user: root
+     tasks:
+       - name: Swarm Init on Master
+         command: docker swarm init --advertise-addr {{ inventory_hostname }}
+  
+       - name: Get Worker Token
+         command: docker swarm join-token worker -q
+         register: worker_token
+  
+       - name: Master Token
+         command: docker swarm join-token manager -q
+         register: master_token
+ 
+   - name: Join Swarm Cluster
+     hosts: worker
+     remote_user: root
+     vars:
+       token: "{{ hostvars[groups['master']]['worker_token']['stdout'] }}"
+       master: "{{ hostvars[groups['master']]['inventory_hostname'] }}"
+     tasks:
+       - name: Join Swarm Cluster as a Worker
+         command: docker swarm join --token {{ token }} {{ master }}:2377
+         register: worker
+  
+   - name: Start nginx servers on Cluster
+     hosts: master
+     remote_user: root
+     tasks:	 
+       - name: Run a docker container on swarms
+         script: docker service create --replicas 3 -p 80:80 --name serviceName nginx
